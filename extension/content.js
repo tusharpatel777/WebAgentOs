@@ -3,12 +3,13 @@
 //   GET_CONTEXT    → returns parsed DOM elements via dom_parser.js
 //   EXECUTE_ACTION → performs click / type / scroll / navigate on the page
 
-// Self-healing: tries CSS → XPath → text/label match (in that order)
+// Self-healing: CSS → XPath → aria/text match → full-page text scan
 function findElement(css, xpath) {
   // 1. CSS selector
   if (css) {
     try { const el = document.querySelector(css); if (el) return el; } catch (_) {}
   }
+
   // 2. XPath
   if (xpath) {
     try {
@@ -16,20 +17,34 @@ function findElement(css, xpath) {
       if (res.singleNodeValue) return res.singleNodeValue;
     } catch (_) {}
   }
-  // 3. Self-healing: match by aria-label, placeholder, or visible text
-  const hint = (css || xpath || "").replace(/^xpath:/, "").split('"')[1] || "";
+
+  // 3. Attribute / text match on standard interactive elements
+  const hint = (css || xpath || "").replace(/^xpath:/, "").replace(/#|\.|\[.*?\]/g, " ").trim();
   if (hint) {
-    const tags = "button, a, input, select, textarea, [role=button]";
-    for (const el of document.querySelectorAll(tags)) {
+    for (const el of document.querySelectorAll("button, a, input, [role=button], [role=link]")) {
       const label = (
-        el.getAttribute("aria-label") ||
-        el.getAttribute("placeholder") ||
-        el.getAttribute("title") ||
-        el.textContent.trim()
+        el.getAttribute("aria-label") || el.getAttribute("placeholder") ||
+        el.getAttribute("title")      || el.textContent.trim()
       ).toLowerCase();
       if (label.includes(hint.toLowerCase())) return el;
     }
   }
+
+  // 4. Full-page text scan — catches Flipkart/Amazon div-based buttons
+  // Uses the hint OR the xpath leaf text to find matching element by exact visible text
+  const searchText = hint || (xpath || "").split("/").pop().replace(/\[.*\]/, "");
+  if (searchText.length > 2) {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+    while (walker.nextNode()) {
+      const el = walker.currentNode;
+      const text = el.textContent.trim().toLowerCase();
+      if (text === searchText.toLowerCase() || text.startsWith(searchText.toLowerCase())) {
+        const style = window.getComputedStyle(el);
+        if (style.display !== "none" && style.visibility !== "hidden") return el;
+      }
+    }
+  }
+
   return null;
 }
 

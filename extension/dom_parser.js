@@ -3,8 +3,8 @@
 
 (function () {
 
-  // Priority keywords — these elements bubble to the TOP of context
-  const HIGH_PRIORITY = ["add to cart", "buy", "checkout", "purchase", "order", "submit", "search", "login", "sign in", "continue", "proceed", "pay"];
+  const HIGH_PRIORITY = ["add to cart", "buy now", "buy at", "checkout", "place order", "continue", "proceed to pay", "add", "purchase"];
+  const ACTION_TEXTS  = ["add to cart", "buy now", "place order", "proceed", "checkout", "add", "buy at"];
 
   function isPriority(label) {
     const l = label.toLowerCase();
@@ -23,76 +23,76 @@
   }
 
   function getBestCSS(el) {
-    if (el.id)                                  return `#${el.id}`;
-    if (el.getAttribute("name"))                return `${el.tagName.toLowerCase()}[name="${el.getAttribute("name")}"]`;
-    if (el.getAttribute("data-testid"))         return `[data-testid="${el.getAttribute("data-testid")}"]`;
-    if (el.getAttribute("aria-label"))          return `[aria-label="${el.getAttribute("aria-label")}"]`;
-    if (el.getAttribute("placeholder"))         return `[placeholder="${el.getAttribute("placeholder")}"]`;
-    // Flipkart / Amazon specific attributes
-    if (el.getAttribute("data-id"))             return `[data-id="${el.getAttribute("data-id")}"]`;
-    if (el.getAttribute("data-tracking-id"))    return `[data-tracking-id="${el.getAttribute("data-tracking-id")}"]`;
+    if (el.id)                               return `#${el.id}`;
+    if (el.getAttribute("name"))             return `${el.tagName.toLowerCase()}[name="${el.getAttribute("name")}"]`;
+    if (el.getAttribute("data-testid"))      return `[data-testid="${el.getAttribute("data-testid")}"]`;
+    if (el.getAttribute("aria-label"))       return `[aria-label="${el.getAttribute("aria-label")}"]`;
+    if (el.getAttribute("placeholder"))      return `[placeholder="${el.getAttribute("placeholder")}"]`;
+    if (el.getAttribute("data-id"))          return `[data-id="${el.getAttribute("data-id")}"]`;
     return null;
   }
 
-  window.__agentGetElements = function () {
-    // Wider selector net — catches Flipkart/Amazon custom components
-    const TAGS = [
-      "button",
-      "a[href]",
-      "input:not([type=hidden])",
-      "select",
-      "textarea",
-      "[role=button]",
-      "[role=link]",
-      "[role=menuitem]",
-      "[role=option]",
-      "[class*='cart' i]",
-      "[class*='buy' i]",
-      "[class*='add-to' i]",
-      "[class*='checkout' i]",
-    ].join(", ");
+  function isVisible(el) {
+    const rect  = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return (
+      rect.width > 0 && rect.height > 0 &&
+      style.visibility !== "hidden" &&
+      style.display    !== "none"   &&
+      style.opacity    !== "0"      &&
+      style.pointerEvents !== "none"
+    );
+  }
 
-    const seen   = new Set();
+  window.__agentGetElements = function () {
+    const seen    = new Set();
     const priority = [];
     const normal   = [];
 
-    document.querySelectorAll(TAGS).forEach(el => {
-      const rect  = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      const visible =
-        rect.width > 0 && rect.height > 0 &&
-        style.visibility !== "hidden" &&
-        style.display    !== "none"   &&
-        style.opacity    !== "0";
-      if (!visible) return;
+    // ── Pass 1: Standard interactive elements ────────────────────────────────
+    const TAGS = [
+      "button", "a[href]", "input:not([type=hidden])",
+      "select", "textarea",
+      "[role=button]", "[role=link]", "[role=menuitem]", "[role=option]",
+      "[class*='cart' i]", "[class*='buy' i]", "[class*='add-to' i]", "[class*='checkout' i]",
+    ].join(", ");
 
+    document.querySelectorAll(TAGS).forEach(el => {
+      if (!isVisible(el)) return;
       const xpath = getXPath(el);
       if (seen.has(xpath)) return;
       seen.add(xpath);
 
       const label = (
-        el.getAttribute("aria-label") ||
-        el.getAttribute("placeholder") ||
-        el.getAttribute("title") ||
-        el.textContent.trim().slice(0, 80) ||
-        el.getAttribute("name") ||
-        el.getAttribute("value") || ""
+        el.getAttribute("aria-label") || el.getAttribute("placeholder") ||
+        el.getAttribute("title")      || el.textContent.trim().slice(0, 80) ||
+        el.getAttribute("name")       || el.getAttribute("value") || ""
       ).trim();
 
-      const entry = {
-        tag:   el.tagName.toLowerCase(),
-        type:  el.getAttribute("type") || "",
-        label,
-        css:   getBestCSS(el),
-        xpath,
-      };
-
-      // High-priority elements go to the front
-      if (isPriority(label)) priority.push(entry);
-      else normal.push(entry);
+      const entry = { tag: el.tagName.toLowerCase(), type: el.getAttribute("type") || "", label, css: getBestCSS(el), xpath };
+      isPriority(label) ? priority.push(entry) : normal.push(entry);
     });
 
-    // Priority first, then normal — index after merging
+    // ── Pass 2: Text-based scan — catches Flipkart/Amazon div buttons ────────
+    // Finds ANY element whose visible text exactly matches action keywords
+    ACTION_TEXTS.forEach(keyword => {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+      while (walker.nextNode()) {
+        const el = walker.currentNode;
+        const text = el.childNodes.length === 1 && el.firstChild.nodeType === 3
+          ? el.textContent.trim().toLowerCase()   // direct text node only
+          : "";
+        if (!text.includes(keyword)) continue;
+        if (!isVisible(el)) continue;
+        const xpath = getXPath(el);
+        if (seen.has(xpath)) continue;
+        seen.add(xpath);
+
+        const label = el.textContent.trim().slice(0, 80);
+        priority.unshift({ tag: el.tagName.toLowerCase(), type: "", label, css: getBestCSS(el), xpath });
+      }
+    });
+
     const merged = [...priority, ...normal].slice(0, 80).map((e, i) => ({ idx: i, ...e }));
 
     return {
