@@ -90,9 +90,18 @@ async function handleAction(payload) {
         return { ok: true };
       }
       case "type": {
-        const el = await waitForElement(css, xpath);
-        if (!el) return { ok: false, msg: `Element not found after 5s — css:${css}` };
+        let el = await waitForElement(css, xpath);
+        // Fallback: any visible text/search input on page
+        if (!el) {
+          for (const sel of ['input[type="search"]','input[type="text"]','input[name="q"]','input[placeholder]','textarea']) {
+            const found = document.querySelector(sel);
+            if (found) { el = found; break; }
+          }
+        }
+        if (!el) return { ok: false, msg: `Input not found — css:${css}` };
         el.focus();
+        el.value = "";
+        el.dispatchEvent(new Event("input", { bubbles: true }));
         el.value = value || "";
         el.dispatchEvent(new Event("input",  { bubbles: true }));
         el.dispatchEvent(new Event("change", { bubbles: true }));

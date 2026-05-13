@@ -29,6 +29,12 @@
     if (el.getAttribute("aria-label"))       return `[aria-label="${el.getAttribute("aria-label")}"]`;
     if (el.getAttribute("placeholder"))      return `[placeholder="${el.getAttribute("placeholder")}"]`;
     if (el.getAttribute("data-id"))          return `[data-id="${el.getAttribute("data-id")}"]`;
+    // Search/text inputs — use type as fallback (better than long XPath)
+    if (el.tagName === "INPUT") {
+      const type = el.getAttribute("type") || "text";
+      if (type === "search") return `input[type="search"]`;
+      if (type === "text")   return `input[type="text"]`;
+    }
     return null;
   }
 
