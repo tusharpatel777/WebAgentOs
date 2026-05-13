@@ -1,0 +1,19 @@
+# API keys — never commit
+.env
+.env.example
+hf_backend/.env
+hf_backend/.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# HF backend has its own git — don't double-track
+hf_backend/.git/
+
+# OS
+.DS_Store
+Thumbs.db

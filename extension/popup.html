@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>WebAgentOS</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🧠 WebAgentOS</h1>
+      <span id="status-dot" class="dot offline" title="Brain status"></span>
+    </header>
+
+    <textarea id="goalInput" placeholder="What do you want me to do?
+Example: Search for 'wireless headphones' on Amazon and open the first result." rows="4"></textarea>
+
+    <div class="btn-row">
+      <button id="runBtn">▶ Run Agent</button>
+      <button id="stopBtn" disabled>■ Stop</button>
+    </div>
+
+    <div id="log" class="log">
+      <p class="hint">Agent steps will appear here…</p>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

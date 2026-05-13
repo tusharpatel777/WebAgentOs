@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>AgentOS Button Test</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 40px;
+      padding: 40px;
+    }
+
+    h1 { font-size: 24px; color: #94a3b8; letter-spacing: 1px; }
+
+    .btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      width: 100%;
+      max-width: 500px;
+    }
+
+    button {
+      padding: 24px 16px;
+      font-size: 16px;
+      font-weight: 600;
+      border: 2px solid transparent;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    #btn-login    { background: #3b82f6; color: #fff; }
+    #btn-signup   { background: #22c55e; color: #fff; }
+    #btn-buy      { background: #f59e0b; color: #000; }
+    #btn-delete   { background: #ef4444; color: #fff; }
+
+    button.clicked {
+      transform: scale(0.95);
+      border-color: #fff;
+      box-shadow: 0 0 20px rgba(255,255,255,0.4);
+    }
+
+    #result {
+      font-size: 20px;
+      font-weight: 700;
+      padding: 20px 40px;
+      border-radius: 12px;
+      background: #1e293b;
+      min-width: 300px;
+      text-align: center;
+      min-height: 66px;
+      transition: all 0.3s;
+    }
+
+    #result.success { background: #14532d; color: #86efac; }
+    #result.danger  { background: #450a0a; color: #fca5a5; }
+    #result.neutral { background: #1e293b; color: #94a3b8; }
+
+    .log {
+      width: 100%;
+      max-width: 500px;
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 16px;
+      font-size: 13px;
+      color: #64748b;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+
+    .log p { padding: 2px 0; border-bottom: 1px solid #0f172a; }
+    .log p span { color: #38bdf8; }
+  </style>
+</head>
+<body>
+
+  <h1>🤖 AgentOS — Button Click Test</h1>
+
+  <div class="btn-grid">
+    <button id="btn-login"  onclick="handleClick('Login',  'success')">🔐 Login</button>
+    <button id="btn-signup" onclick="handleClick('Sign Up', 'success')">✅ Sign Up</button>
+    <button id="btn-buy"    onclick="handleClick('Buy Now', 'success')">🛒 Buy Now</button>
+    <button id="btn-delete" onclick="handleClick('Delete',  'danger')"> 🗑️ Delete Account</button>
+  </div>
+
+  <div id="result" class="neutral">Waiting for click…</div>
+
+  <div class="log" id="log">
+    <p>Click log will appear here.</p>
+  </div>
+
+  <script>
+    let clickCount = 0;
+
+    function handleClick(label, type) {
+      clickCount++;
+      const result = document.getElementById("result");
+      const log    = document.getElementById("log");
+
+      result.textContent = `✓ "${label}" button was clicked!`;
+      result.className   = type;
+
+      // Highlight clicked button briefly
+      const btns = document.querySelectorAll("button");
+      btns.forEach(b => b.classList.remove("clicked"));
+      event.target.classList.add("clicked");
+      setTimeout(() => event.target.classList.remove("clicked"), 600);
+
+      // Add to log
+      const entry = document.createElement("p");
+      entry.innerHTML = `<span>#${clickCount}</span> [${new Date().toLocaleTimeString()}] → <b>${label}</b>`;
+      log.prepend(entry);
+    }
+  </script>
+</body>
+</html>
