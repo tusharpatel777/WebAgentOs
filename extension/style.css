@@ -4,8 +4,8 @@ body {
   font-family: system-ui, sans-serif;
   background: #0f0f0f;
   color: #e8e8e8;
-  width: 380px;
-  min-height: 480px;
+  width: 100%;
+  min-height: 100vh;
 }
 
 .container { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
@@ -94,6 +94,87 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 #approveBtn { background: #14532d; color: #86efac; flex: 1; }
 #denyBtn    { background: #450a0a; color: #fca5a5; flex: 1; }
 
+/* ── Memory Panel ── */
+.memory-panel {
+  background: #0d1117;
+  border: 1px solid #6366f1;
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.memory-panel.hidden { display: none; }
+.memory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #a5b4fc;
+}
+.memory-header button {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 13px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+#memoryList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 100px;
+  overflow-y: auto;
+}
+#memoryList li {
+  font-size: 11px;
+  color: #c4b5fd;
+  background: #1e1b4b;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.mem-hint { color: #4b5563 !important; background: transparent !important; font-style: italic; }
+
+/* â”€â”€ Settings Panel â”€â”€ */
+.settings-panel {
+  background: #0d1117;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-panel.hidden { display: none; }
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+.settings-label { font-size: 11px; color: #94a3b8; }
+.settings-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: #0b1220;
+  color: #e2e8f0;
+  outline: none;
+  font-size: 12px;
+}
+.settings-actions { display: flex; gap: 8px; }
+.settings-actions button { flex: 1; }
+.settings-actions .secondary { background: #111827; color: #e2e8f0; border: 1px solid #334155; }
+.settings-hint { margin: 0; font-size: 11px; color: #64748b; }
+
 /* ── Log ── */
 .log {
   background: #111;
@@ -101,7 +182,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   border-radius: 8px;
   padding: 10px;
   font-size: 12px;
-  max-height: 260px;
+  max-height: calc(100vh - 280px);
   overflow-y: auto;
   display: flex;
   flex-direction: column;

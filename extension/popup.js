@@ -1,8 +1,17 @@
-const BRAIN_URL = "https://tusharpatel-webagentos-brain.hf.space/plan";
+// Brain base URL is configurable via WAOConfig (config.js)
 
 // Critical actions that need human approval before executing
 const DANGEROUS_LABELS = ["buy", "pay", "checkout", "order", "purchase", "delete", "remove", "submit", "confirm", "place order"];
 
+const memoryBtn      = document.getElementById("memoryBtn");
+const settingsBtn    = document.getElementById("settingsBtn");
+const memoryPanel    = document.getElementById("memoryPanel");
+const settingsPanel  = document.getElementById("settingsPanel");
+const memoryList     = document.getElementById("memoryList");
+const clearMemoryBtn = document.getElementById("clearMemoryBtn");
+const brainUrlInput     = document.getElementById("brainUrlInput");
+const saveSettingsBtn   = document.getElementById("saveSettingsBtn");
+const resetSettingsBtn  = document.getElementById("resetSettingsBtn");
 const runBtn      = document.getElementById("runBtn");
 const stopBtn     = document.getElementById("stopBtn");
 const voiceBtn    = document.getElementById("voiceBtn");
@@ -43,7 +52,8 @@ function setRunning(running) {
 async function checkBrain() {
   statusDot.className = "dot checking";
   try {
-    const res = await fetch(BRAIN_URL.replace("/plan", "/"), { signal: AbortSignal.timeout(4000) });
+    const ep = await window.WAOConfig.getEndpoints();
+    const res = await fetch(`${ep.base}/`, { signal: AbortSignal.timeout(4000) });
     statusDot.className = res.ok ? "dot online" : "dot offline";
   } catch {
     statusDot.className = "dot offline";
@@ -81,14 +91,29 @@ function setupVoice() {
   recognition.continuous = false;
   recognition.interimResults = false;
 
+  async function ensureMicPermission() {
+    // Some Chrome builds require explicit mic grant for extension pages.
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(t => t.stop());
+    } catch (e) {
+      // Surface a helpful error; SpeechRecognition will likely fail with "not-allowed".
+      renderEntry({ msg: `Microphone permission error: ${e.message || e.name || e}`, type: "error" });
+      throw e;
+    }
+  }
+
   voiceBtn.addEventListener("click", () => {
     if (voiceBtn.classList.contains("listening")) {
       recognition.stop();
       return;
     }
-    recognition.start();
-    voiceBtn.classList.add("listening");
-    speak("Listening");
+
+    // Prefer running SpeechRecognition in the active TAB context.
+    // Many Chrome setups block mic access from extension pages (side panel),
+    // but allow it from normal web pages.
+    startVoiceInActiveTab().catch(() => {});
   });
 
   recognition.onresult = (e) => {
@@ -105,12 +130,56 @@ function setupVoice() {
 
   recognition.onerror = (e) => {
     voiceBtn.classList.remove("listening");
-    renderEntry({ msg: `Voice error: ${e.error}`, type: "error" });
+    const extra = e?.message ? ` (${e.message})` : "";
+    renderEntry({ msg: `Voice error: ${e.error}${extra}`, type: "error" });
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      renderEntry({ msg: "Tip: allow microphone access for this extension (Chrome Site settings → Microphone).", type: "info" });
+    }
   };
 
   recognition.onend = () => {
     voiceBtn.classList.remove("listening");
   };
+
+  async function startVoiceInActiveTab() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) {
+      renderEntry({ msg: "No active tab found for voice.", type: "error" });
+      return;
+    }
+
+    voiceBtn.classList.add("listening");
+    speak("Listening");
+    renderEntry({ msg: "🎤 Listening in the active tab…", type: "voice" });
+
+    const resp = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "VOICE_IN_TAB", tabId: tab.id }, resolve);
+    });
+
+    voiceBtn.classList.remove("listening");
+
+    if (!resp?.ok) {
+      renderEntry({ msg: `Voice error: ${resp?.error || "unknown"}`, type: "error" });
+      if (resp?.error === "not_supported") {
+        renderEntry({ msg: "SpeechRecognition not available on this page/browser.", type: "info" });
+      }
+      if (resp?.error === "not-allowed" || resp?.error === "service-not-allowed") {
+        renderEntry({ msg: "Allow microphone for the website (Chrome address bar mic icon / Site settings).", type: "info" });
+      }
+      return;
+    }
+
+    const transcript = (resp.transcript || "").trim();
+    if (!transcript) {
+      renderEntry({ msg: "Heard nothing. Try again.", type: "warning" });
+      return;
+    }
+
+    document.getElementById("goalInput").value = transcript;
+    renderEntry({ msg: `🎤 Voice: "${transcript}"`, type: "voice" });
+    speak(`Got it. Starting: ${transcript}`);
+    startAgent();
+  }
 }
 
 // ── Restore log when popup reopens ────────────────────────────────────────────
@@ -165,6 +234,81 @@ function stopAgent() {
   setRunning(false);
   speak("Agent stopped.");
 }
+
+// ── Phase 5: Memory Panel ─────────────────────────────────────────────────────
+function getUserId() {
+  return new Promise(resolve => {
+    chrome.storage.sync.get(["userId"], (r) => {
+      if (r.userId) return resolve(r.userId);
+      const id = crypto.randomUUID();
+      chrome.storage.sync.set({ userId: id });
+      resolve(id);
+    });
+  });
+}
+
+async function loadMemory() {
+  try {
+    const facts = await new Promise((resolve) => {
+      chrome.storage.sync.get(["userMemoryFacts"], (r) => resolve(r.userMemoryFacts || []));
+    });
+    memoryList.innerHTML = "";
+    if (facts.length === 0) {
+      memoryList.innerHTML = "<li class='mem-hint'>No preferences saved yet.</li>";
+    } else {
+      facts.forEach(f => {
+        const li = document.createElement("li");
+        li.textContent = f;
+        memoryList.appendChild(li);
+      });
+    }
+  } catch {
+    memoryList.innerHTML = "<li class='mem-hint'>Could not load memory.</li>";
+  }
+}
+
+memoryBtn.addEventListener("click", () => {
+  const isHidden = memoryPanel.classList.toggle("hidden");
+  if (!memoryPanel.classList.contains("hidden")) settingsPanel.classList.add("hidden");
+  if (!isHidden) loadMemory();
+});
+
+clearMemoryBtn.addEventListener("click", async () => {
+  chrome.storage.sync.set({ userMemoryFacts: [] });
+  memoryList.innerHTML = "<li class='mem-hint'>Memory cleared.</li>";
+});
+
+async function loadSettings() {
+  const base = await window.WAOConfig.getBrainBaseUrl();
+  if (brainUrlInput) brainUrlInput.value = base;
+}
+
+settingsBtn?.addEventListener("click", async () => {
+  const isHidden = settingsPanel.classList.toggle("hidden");
+  // Only show one panel at a time
+  if (!settingsPanel.classList.contains("hidden")) memoryPanel.classList.add("hidden");
+  if (!isHidden) await loadSettings();
+});
+
+saveSettingsBtn?.addEventListener("click", async () => {
+  await window.WAOConfig.setBrainBaseUrl(brainUrlInput?.value || "");
+  renderEntry({ msg: "Settings saved. Reload the extension to apply everywhere.", type: "info" });
+  checkBrain();
+});
+
+resetSettingsBtn?.addEventListener("click", async () => {
+  await window.WAOConfig.setBrainBaseUrl(window.WAOConfig.DEFAULT_BASE);
+  await loadSettings();
+  renderEntry({ msg: "Brain URL reset to default.", type: "info" });
+  checkBrain();
+});
+
+// Refresh memory panel when background extracts new facts
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === "MEMORY_UPDATED" && !memoryPanel.classList.contains("hidden")) {
+    loadMemory();
+  }
+});
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 runBtn.addEventListener("click", startAgent);

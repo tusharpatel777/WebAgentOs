@@ -3,8 +3,18 @@
 
 (function () {
 
-  const HIGH_PRIORITY = ["add to cart", "buy now", "buy at", "checkout", "place order", "continue", "proceed to pay", "add", "purchase"];
-  const ACTION_TEXTS  = ["add to cart", "buy now", "place order", "proceed", "checkout", "add", "buy at"];
+  const HIGH_PRIORITY = [
+    "add to cart", "add to bag", "add to basket",
+    "buy now", "buy at",
+    "checkout", "go to cart", "view cart",
+    "place order", "continue", "proceed to pay",
+    "purchase", "add"
+  ];
+  const ACTION_TEXTS  = [
+    "add to cart", "add to bag", "add to basket",
+    "buy now", "place order", "proceed", "checkout",
+    "go to cart", "view cart", "add", "buy at"
+  ];
 
   function isPriority(label) {
     const l = label.toLowerCase();
@@ -85,23 +95,44 @@
 
     document.querySelectorAll(TAGS).forEach(el => {
       if (!isVisible(el)) return;
-      const xpath = getXPath(el);
+
+      // Normalize to the actual click target (many sites attach handlers to ancestors).
+      const clickable = findClickableAncestor(el);
+      if (!isVisible(clickable)) return;
+
+      const xpath = getXPath(clickable);
       if (seen.has(xpath)) return;
       seen.add(xpath);
 
       const label = (
-        el.getAttribute("aria-label") || el.getAttribute("placeholder") ||
-        el.getAttribute("title")      || el.textContent.trim().slice(0, 80) ||
-        el.getAttribute("name")       || el.getAttribute("value") || ""
+        clickable.getAttribute("aria-label") || clickable.getAttribute("placeholder") ||
+        clickable.getAttribute("title")      || clickable.innerText?.trim().slice(0, 80) ||
+        clickable.textContent?.trim().slice(0, 80) ||
+        clickable.getAttribute("name")       || clickable.getAttribute("value") || ""
       ).trim();
 
-      const entry = { tag: el.tagName.toLowerCase(), type: el.getAttribute("type") || "", label, css: getBestCSS(el), xpath };
+      const entry = { tag: clickable.tagName.toLowerCase(), type: clickable.getAttribute("type") || "", label, css: getBestCSS(clickable), xpath };
       isPriority(label) ? priority.push(entry) : normal.push(entry);
     });
 
     // ── Pass 2: Text-based scan — catches Flipkart/Amazon div buttons ────────
-    // Finds ANY element whose text matches action keywords,
-    // then walks UP the DOM to find the actual clickable ancestor (cursor:pointer).
+    // Skip elements inside "related/similar/frequently-bought" containers —
+    // those are secondary CTAs that confuse the Brain into clicking the wrong thing.
+    const EXCLUDED_CONTAINERS = [
+      "#slot-list-container",
+      "[class*='frequently-bought' i]",
+      "[class*='similar-product' i]",
+      "[class*='related-product' i]",
+      "[class*='also-bought' i]",
+      "[data-widget-type='FREQUENTLY_BOUGHT_TOGETHER']",
+    ];
+
+    function isInExcludedContainer(el) {
+      return EXCLUDED_CONTAINERS.some(sel => {
+        try { return !!el.closest(sel); } catch { return false; }
+      });
+    }
+
     ACTION_TEXTS.forEach(keyword => {
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
       while (walker.nextNode()) {
@@ -111,9 +142,11 @@
           : "";
         if (!text.includes(keyword)) continue;
         if (!isVisible(el)) continue;
+        if (isInExcludedContainer(el)) continue;  // skip FBT / related sections
 
         // Walk UP to find the real clickable ancestor
         const clickable = findClickableAncestor(el);
+        if (isInExcludedContainer(clickable)) continue;  // double-check ancestor too
 
         const xpath = getXPath(clickable);
         if (seen.has(xpath)) return;

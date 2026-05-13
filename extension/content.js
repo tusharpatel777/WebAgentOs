@@ -69,9 +69,9 @@ function findClickableAncestor(el) {
 function smartFindByText(text) {
   const lower = text.toLowerCase();
   let best = null;
-  const all = document.querySelectorAll("button, a, div, span, li");
+  const all = queryAllDeep("button, a, div, span, li");
   for (const el of all) {
-    const t = el.innerText?.trim().toLowerCase();
+    const t = (el.innerText || el.textContent || "").trim().toLowerCase();
     if (!t) continue;
     if (t === lower || t.startsWith(lower)) {
       const style = window.getComputedStyle(el);
@@ -86,6 +86,122 @@ function smartFindByText(text) {
     }
   }
   return best ? findClickableAncestor(best) : null;
+}
+
+// Query selector across document + open shadow roots + same-origin iframes (best-effort)
+function queryAllDeep(selector) {
+  const out = [];
+  const roots = getAllRoots();
+  for (const root of roots) {
+    try {
+      out.push(...root.querySelectorAll(selector));
+    } catch (_) {}
+  }
+  return out;
+}
+
+function getAllRoots() {
+  const roots = [];
+  const seen = new Set();
+
+  function addRoot(root) {
+    if (!root) return;
+    if (seen.has(root)) return;
+    seen.add(root);
+    roots.push(root);
+  }
+
+  function walkDoc(doc) {
+    if (!doc?.documentElement) return;
+    addRoot(doc);
+
+    for (const iframe of doc.querySelectorAll("iframe")) {
+      try {
+        const child = iframe.contentDocument;
+        if (child) walkDoc(child);
+      } catch (_) {}
+    }
+
+    const hosts = doc.querySelectorAll("*");
+    for (const host of hosts) {
+      const sr = host.shadowRoot;
+      if (sr) walkShadow(sr);
+    }
+  }
+
+  function walkShadow(sr) {
+    addRoot(sr);
+    const hosts = sr.querySelectorAll("*");
+    for (const host of hosts) {
+      const nested = host.shadowRoot;
+      if (nested) walkShadow(nested);
+    }
+  }
+
+  walkDoc(document);
+  return roots.slice(0, 30);
+}
+
+// L6: Scroll → find by text → click (handles sticky/hidden/shadow/iframe)
+async function forceClickByText(text) {
+  const lower = text.toLowerCase().trim();
+
+  function clickIfMatch(selector, exact = true) {
+    let best = null;
+    for (const el of queryAllDeep(selector)) {
+      const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+      if (!t) continue;
+      const match = exact ? (t === lower) : (t.startsWith(lower) && t.length < lower.length + 25);
+      if (!match) continue;
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden" || style.pointerEvents === "none") continue;
+
+      if (exact) {
+        humanClick(el);
+        el.click();
+        return { ok: true, matched: t };
+      }
+
+      if (!best || t.length < best.t.length) best = { el, t };
+    }
+    if (best) {
+      humanClick(best.el);
+      best.el.click();
+      return { ok: true, matched: best.t };
+    }
+    return null;
+  }
+
+  // Pass A: try at current scroll position
+  let r =
+    clickIfMatch("button, [role='button']", true) ||
+    clickIfMatch("button, a, [role='button'], div, span", true) ||
+    clickIfMatch("button, a, [role='button'], div, span", false);
+  if (r) return r;
+
+  // Only do aggressive scroll sweeps for CTA-like targets; otherwise avoid up/down oscillation.
+  const isCtaTarget =
+    lower.includes("add to") ||
+    lower.includes("cart") ||
+    lower.includes("buy") ||
+    lower.includes("checkout") ||
+    lower.includes("place order");
+
+  if (!isCtaTarget) return null;
+
+  // Pass B: scroll top then retry (sticky CTAs often become visible)
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  await new Promise(r2 => setTimeout(r2, 500));
+  r =
+    clickIfMatch("button, [role='button']", true) ||
+    clickIfMatch("button, a, [role='button'], div, span", true) ||
+    clickIfMatch("button, a, [role='button'], div, span", false);
+  if (r) return r;
+
+  return null;
 }
 
 // Human-like click with MouseEvent
@@ -119,14 +235,41 @@ async function handleAction(payload) {
 
       case "click": {
         let el = await waitForElement(css, xpath);
-        // Extra fallback: smartFindByText using the label hint
+
+        // Safety: if Brain gave a selector inside Frequently Bought Together,
+        // discard it — it's a secondary CTA, not the main product button
+        if (el && el.closest("#slot-list-container, [class*='frequently-bought' i]")) {
+          el = null;
+        }
+
+        // L3/L4: smartFindByText using selector hint
         if (!el) {
           const hint = (css || xpath || "").replace(/^xpath:/, "").split('"')[1] || "";
           if (hint) el = smartFindByText(hint);
+          // Discard if still in FBT section
+          if (el && el.closest("#slot-list-container, [class*='frequently-bought' i]")) el = null;
         }
-        if (!el) return { ok: false, msg: `Element not found — css:${css}` };
-        humanClick(el);
-        return { ok: true };
+
+        // L5: humanClick on found element (scrolls into view, fires mouse events)
+        if (el) {
+          humanClick(el);
+          el.click(); // also fire native click for React/Vue event listeners
+          return { ok: true };
+        }
+
+        // L6: Scroll-to-top + force-click by text — works on sticky/fixed/hidden bars
+        const labelHints = [
+          (css || "").replace(/[#\.\[\]='"]/g, " ").trim(),
+          (xpath || "").split("/").pop().replace(/\[.*\]/, "").trim(),
+          "add to cart", "add to bag", "add to basket", "buy now", "view cart", "go to cart",
+        ].filter(h => h.length > 2);
+
+        for (const hint of labelHints) {
+          const result = await forceClickByText(hint);
+          if (result) return { ok: true, layer: "L6-force", matched: result.matched };
+        }
+
+        return { ok: false, msg: `Element not found — css:${css}` };
       }
 
       case "type": {

@@ -9,8 +9,35 @@
   <div class="container">
     <header>
       <h1>🧠 WebAgentOS</h1>
-      <span id="status-dot" class="dot offline" title="Brain status"></span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button id="memoryBtn" title="View saved preferences" style="flex:none;width:32px;height:32px;padding:0;font-size:15px;background:#1a1a1a;border:1px solid #333;border-radius:8px;">💾</button>
+        <button id="settingsBtn" title="Settings" style="flex:none;width:32px;height:32px;padding:0;font-size:15px;background:#1a1a1a;border:1px solid #333;border-radius:8px;">⚙</button>
+        <span id="status-dot" class="dot offline" title="Brain status"></span>
+      </div>
     </header>
+
+    <!-- Phase 5: User Memory Panel -->
+    <div id="memoryPanel" class="memory-panel hidden">
+      <div class="memory-header">
+        <span>Saved Preferences</span>
+        <button id="clearMemoryBtn" title="Clear all memory">🗑</button>
+      </div>
+      <ul id="memoryList"><li class="mem-hint">No preferences saved yet.</li></ul>
+    </div>
+
+    <!-- Settings Panel -->
+    <div id="settingsPanel" class="settings-panel hidden">
+      <div class="settings-header">
+        <span>Settings</span>
+      </div>
+      <label class="settings-label" for="brainUrlInput">Brain Base URL</label>
+      <input id="brainUrlInput" class="settings-input" type="text" placeholder="https://...hf.space" />
+      <div class="settings-actions">
+        <button id="saveSettingsBtn">Save</button>
+        <button id="resetSettingsBtn" class="secondary">Reset</button>
+      </div>
+      <p class="settings-hint">Reload extension after changing URL.</p>
+    </div>
 
     <div class="input-row">
       <textarea id="goalInput" placeholder="Type your goal, or press 🎤 to speak…" rows="3"></textarea>
@@ -35,6 +62,7 @@
       <p class="hint">Agent steps will appear here…</p>
     </div>
   </div>
+  <script src="config.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

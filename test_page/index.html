@@ -86,11 +86,55 @@
 
   <h1>🤖 AgentOS — Button Click Test</h1>
 
+  <div style="width: 100%; max-width: 500px; display:flex; gap:10px;">
+    <input
+      id="test-input"
+      type="search"
+      placeholder="Type here to test agent typing…"
+      style="flex:1; padding:14px 14px; border-radius:12px; border:1px solid #334155; background:#0b1220; color:#e2e8f0; outline:none; font-size:14px;"
+    />
+    <button
+      id="test-submit"
+      onclick="handleInputSubmit()"
+      style="padding:14px 16px; border-radius:12px; border:0; cursor:pointer; background:#64748b; color:#0b1220; font-weight:800;"
+    >
+      Submit
+    </button>
+  </div>
+
   <div class="btn-grid">
     <button id="btn-login"  onclick="handleClick('Login',  'success')">🔐 Login</button>
     <button id="btn-signup" onclick="handleClick('Sign Up', 'success')">✅ Sign Up</button>
     <button id="btn-buy"    onclick="handleClick('Buy Now', 'success')">🛒 Buy Now</button>
     <button id="btn-delete" onclick="handleClick('Delete',  'danger')"> 🗑️ Delete Account</button>
+  </div>
+
+  <!-- Below-the-fold / ecommerce patterns -->
+  <div style="height: 900px"></div>
+
+  <div style="width: 100%; max-width: 700px; background:#111827; border:1px solid #334155; border-radius:12px; padding:16px;">
+    <h2 style="margin-bottom:10px; color:#e2e8f0; font-size:18px;">Fake Product Page</h2>
+
+    <!-- Click handler intentionally on the parent, not the text node -->
+    <div id="atc-parent" style="display:inline-flex; align-items:center; gap:10px; padding:14px 18px; background:#22c55e; color:#052e16; border-radius:10px; cursor:pointer; font-weight:800;">
+      <span style="font-size:18px;">Add to Cart</span>
+      <span style="opacity:.8;">(parent handles click)</span>
+    </div>
+
+    <div style="height: 18px"></div>
+
+    <div id="shadow-host" style="padding:12px; border:1px dashed #475569; border-radius:10px;">
+      Shadow DOM container (button inside shadow root)
+    </div>
+
+    <div style="height: 18px"></div>
+
+    <iframe id="atc-iframe" style="width:100%; height:90px; border:1px solid #334155; border-radius:10px;"></iframe>
+  </div>
+
+  <!-- Sticky bottom bar CTA -->
+  <div id="sticky-bar" style="position:fixed; left:0; right:0; bottom:0; padding:12px; background:rgba(15,23,42,.92); border-top:1px solid #334155; display:flex; justify-content:center; gap:12px;">
+    <button id="sticky-atc" onclick="handleClick('Add to Cart (Sticky)', 'success')" style="background:#38bdf8; color:#0b1220;">Add to Cart</button>
   </div>
 
   <div id="result" class="neutral">Waiting for click…</div>
@@ -121,6 +165,44 @@
       entry.innerHTML = `<span>#${clickCount}</span> [${new Date().toLocaleTimeString()}] → <b>${label}</b>`;
       log.prepend(entry);
     }
+
+    function handleInputSubmit() {
+      const v = document.getElementById("test-input").value;
+      handleClick(`Input submit: ${v || "(empty)"}`, "success");
+    }
+
+    document.getElementById("test-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") handleInputSubmit();
+    });
+
+    // Parent-handler "Add to Cart" (text is a child)
+    document.getElementById("atc-parent").addEventListener("click", () => handleClick("Add to Cart (Parent)", "success"));
+
+    // Shadow DOM "Add to Cart"
+    const host = document.getElementById("shadow-host");
+    const sr = host.attachShadow({ mode: "open" });
+    sr.innerHTML = `
+      <style>
+        button{ padding:10px 14px; border-radius:10px; border:0; cursor:pointer; font-weight:800; background:#f59e0b; color:#111827; }
+      </style>
+      <button id="shadow-atc">Add to Cart</button>
+    `;
+    sr.getElementById("shadow-atc").addEventListener("click", () => handleClick("Add to Cart (Shadow)", "success"));
+
+    // Same-origin iframe "Add to Cart"
+    const iframe = document.getElementById("atc-iframe");
+    iframe.srcdoc = `
+      <!doctype html>
+      <html><body style="margin:0; font-family:system-ui; background:#0b1220; color:#e2e8f0; display:flex; align-items:center; justify-content:center; height:100%;">
+        <button id="iframe-atc" style="padding:10px 14px; border-radius:10px; border:0; cursor:pointer; font-weight:800; background:#a78bfa; color:#111827;">Add to Cart</button>
+        <script>
+          document.getElementById('iframe-atc').addEventListener('click', () => parent.postMessage({ type:'IFRAME_ATC' }, '*'));
+        <\/script>
+      </body></html>
+    `;
+    window.addEventListener("message", (e) => {
+      if (e.data?.type === "IFRAME_ATC") handleClick("Add to Cart (iFrame)", "success");
+    });
   </script>
 </body>
 </html>
