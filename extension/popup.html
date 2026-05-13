@@ -12,12 +12,23 @@
       <span id="status-dot" class="dot offline" title="Brain status"></span>
     </header>
 
-    <textarea id="goalInput" placeholder="What do you want me to do?
-Example: Search for 'wireless headphones' on Amazon and open the first result." rows="4"></textarea>
+    <div class="input-row">
+      <textarea id="goalInput" placeholder="Type your goal, or press 🎤 to speak…" rows="3"></textarea>
+      <button id="voiceBtn" title="Speak your goal">🎤</button>
+    </div>
 
     <div class="btn-row">
       <button id="runBtn">▶ Run Agent</button>
       <button id="stopBtn" disabled>■ Stop</button>
+    </div>
+
+    <!-- Human-in-the-loop approval dialog -->
+    <div id="approvalBox" class="approval-box hidden">
+      <p id="approvalMsg"></p>
+      <div class="approval-btns">
+        <button id="approveBtn">✅ Allow</button>
+        <button id="denyBtn">❌ Block</button>
+      </div>
     </div>
 
     <div id="log" class="log">

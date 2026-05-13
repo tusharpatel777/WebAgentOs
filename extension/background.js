@@ -6,6 +6,31 @@ const MAX_STEPS  = 15;
 
 let stopFlag = false;
 
+// ── Dangerous action detection ────────────────────────────────────────────────
+const DANGER_WORDS = ["buy", "pay", "checkout", "order", "purchase", "delete", "remove", "submit", "confirm", "place order"];
+
+function isDangerous(plan) {
+  const text = `${plan.selector || ""} ${plan.value || ""} ${plan.reason || ""}`.toLowerCase();
+  return DANGER_WORDS.some(w => text.includes(w));
+}
+
+// Ask popup to show approval dialog; wait for user response
+function requestHumanApproval(plan) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: "REQUEST_APPROVAL", plan });
+    // Listen for the response from popup
+    const handler = (msg) => {
+      if (msg.type === "APPROVAL_RESULT") {
+        chrome.runtime.onMessage.removeListener(handler);
+        resolve(msg.approved);
+      }
+    };
+    chrome.runtime.onMessage.addListener(handler);
+    // Auto-deny after 30 seconds if popup is closed
+    setTimeout(() => { chrome.runtime.onMessage.removeListener(handler); resolve(false); }, 30000);
+  });
+}
+
 // ── Persistent log via chrome.storage ────────────────────────────────────────
 function pushLog(msg, type = "info") {
   const entry = { msg, type, ts: Date.now() };
@@ -122,7 +147,15 @@ async function runAgentLoop(goal, tabId) {
     if (plan.action === "done") { pushLog("✓ Goal achieved!", "done"); break; }
     if (plan.action === "fail") { pushLog(`✗ ${plan.reason}`, "error"); break; }
 
-    // 3. Hands
+    // 3a. Human-in-the-loop: ask approval for dangerous actions
+    if (isDangerous(plan)) {
+      pushLog(`⚠ Waiting for your approval…`, "warning");
+      const approved = await requestHumanApproval(plan);
+      if (!approved) { pushLog("Action blocked by user.", "error"); break; }
+      pushLog("Approved. Executing…", "info");
+    }
+
+    // 3b. Hands — execute
     try {
       const result = await executeAction(tabId, plan);
       if (!result?.ok) { pushLog(`Action failed: ${result?.msg}`, "error"); break; }
