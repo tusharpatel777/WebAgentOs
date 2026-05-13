@@ -142,11 +142,24 @@ async function handleAction(payload) {
         el.focus();
         el.value = "";
         el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.value = value || "";
+        el.value = (value || "").replace(/\\n$/, "");
         el.dispatchEvent(new Event("input",  { bubbles: true }));
         el.dispatchEvent(new Event("change", { bubbles: true }));
-        if ((value || "").endsWith("\n"))
-          el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+        // Auto-press Enter for search inputs (dismiss dropdown, trigger search)
+        const isSearchInput = el.type === "search" ||
+          (el.getAttribute("placeholder") || "").toLowerCase().includes("search") ||
+          (el.getAttribute("aria-label")  || "").toLowerCase().includes("search") ||
+          !!el.closest("form");
+
+        if (isSearchInput || (value || "").endsWith("\n")) {
+          await new Promise(r => setTimeout(r, 400)); // let autocomplete settle
+          el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }));
+          el.dispatchEvent(new KeyboardEvent("keyup",   { key: "Enter", keyCode: 13, bubbles: true }));
+          // Also try submitting the parent form directly
+          const form = el.closest("form");
+          if (form) form.submit();
+        }
         return { ok: true };
       }
 

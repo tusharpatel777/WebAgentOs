@@ -8,7 +8,8 @@ const MAX_STEPS  = 15;
 let stopFlag = false;
 
 // ── Dangerous action detection ────────────────────────────────────────────────
-const DANGER_WORDS = ["buy", "pay", "checkout", "order", "purchase", "delete", "remove", "submit", "confirm", "place order"];
+// Only block genuinely irreversible financial/destructive actions
+const DANGER_WORDS = ["pay now", "place order", "confirm order", "proceed to pay", "delete account", "remove account"];
 
 function isDangerous(plan) {
   const text = `${plan.selector || ""} ${plan.value || ""} ${plan.reason || ""}`.toLowerCase();
