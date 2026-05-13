@@ -8,7 +8,6 @@ const MAX_STEPS  = 15;
 let stopFlag = false;
 
 // ── Dangerous action detection ────────────────────────────────────────────────
-// Only block genuinely irreversible financial/destructive actions
 const DANGER_WORDS = ["pay now", "place order", "confirm order", "proceed to pay", "delete account", "remove account"];
 
 function isDangerous(plan) {
@@ -16,11 +15,9 @@ function isDangerous(plan) {
   return DANGER_WORDS.some(w => text.includes(w));
 }
 
-// Ask popup to show approval dialog; wait for user response
 function requestHumanApproval(plan) {
   return new Promise((resolve) => {
     chrome.runtime.sendMessage({ type: "REQUEST_APPROVAL", plan });
-    // Listen for the response from popup
     const handler = (msg) => {
       if (msg.type === "APPROVAL_RESULT") {
         chrome.runtime.onMessage.removeListener(handler);
@@ -28,7 +25,6 @@ function requestHumanApproval(plan) {
       }
     };
     chrome.runtime.onMessage.addListener(handler);
-    // Auto-deny after 30 seconds if popup is closed
     setTimeout(() => { chrome.runtime.onMessage.removeListener(handler); resolve(false); }, 30000);
   });
 }
@@ -41,7 +37,6 @@ function pushLog(msg, type = "info") {
     log.push(entry);
     chrome.storage.local.set({ agentLog: log });
   });
-  // Live push to popup if it's open (fails silently if closed)
   chrome.runtime.sendMessage({ type: "LOG", entry }).catch(() => {});
 }
 
@@ -56,13 +51,17 @@ function getContext(tabId) {
   });
 }
 
-// ── Build context string ──────────────────────────────────────────────────────
+// ── Strategy 4: DOM Pruning — top 25 elements + 400-char body excerpt ─────────
 function buildContext(data) {
-  const lines = data.elements.map(e => {
+  const MAX_ELEMENTS   = 25;
+  const MAX_BODY_CHARS = 400;
+  const elements = data.elements.slice(0, MAX_ELEMENTS);
+  const lines    = elements.map(e => {
     const sel = e.css || `xpath:${e.xpath}`;
     return `[${e.idx}] ${e.tag}${e.type ? `[${e.type}]` : ""} sel="${sel}" label="${e.label}"`;
   }).join("\n");
-  return `URL: ${data.url}\nTitle: ${data.title}\n\nInteractable Elements:\n${lines}\n\nPage Text:\n${data.bodyText}`;
+  const bodyText = (data.bodyText || "").slice(0, MAX_BODY_CHARS);
+  return `URL: ${data.url}\nTitle: ${data.title}\n\nElements (top ${elements.length}):\n${lines}\n\nPage Text:\n${bodyText}`;
 }
 
 // ── Execute action via content.js ─────────────────────────────────────────────
@@ -106,13 +105,14 @@ async function runAgentLoop(goal, tabId) {
   chrome.storage.local.set({ agentRunning: true, agentLog: [] });
   pushLog(`Goal: ${goal}`, "info");
 
-  const history = [];   // action history for Brain
-  let lastObservation = null;  // Gemini feedback fed back to Brain on next step
+  const history = [];
+  let lastObservation = null;
+  let stepQueue = [];    // Strategy 1: Action Chunking — Brain returns 2-3 steps at once
 
   for (let step = 1; step <= MAX_STEPS; step++) {
     if (stopFlag) { pushLog("Stopped by user.", "error"); break; }
 
-    // 1. Eyes
+    // 1. Eyes — always read fresh page state
     pushLog(`Step ${step}: Reading page…`, "info");
     let pageData;
     try {
@@ -122,45 +122,60 @@ async function runAgentLoop(goal, tabId) {
       break;
     }
 
-    // 2. Brain — include Gemini's last observation so it can self-heal
-    pushLog("Asking Brain…", "info");
+    // 2. Brain — Strategy 1: skip API call when queue has pending steps
     let plan;
-    try {
-      const res = await fetch(BRAIN_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          goal,
-          context: buildContext(pageData),
-          history,
-          last_observation: lastObservation,  // ← self-heal feedback
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
-      plan = await res.json();
-    } catch (e) {
-      pushLog(`Brain error: ${e.message}`, "error");
-      break;
+    if (stepQueue.length > 0) {
+      plan = stepQueue.shift();
+      pushLog(`Queued step (${stepQueue.length} remaining in batch)…`, "info");
+    } else {
+      pushLog("Asking Brain…", "info");
+      try {
+        const res = await fetch(BRAIN_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            goal,
+            context: buildContext(pageData),
+            history,
+            last_observation: lastObservation,
+          }),
+          signal: AbortSignal.timeout(30000),
+        });
+        const brainData = await res.json();
+
+        if (brainData.error) { pushLog(`Brain: ${brainData.error}`, "error"); break; }
+
+        // Support both {steps:[...]} (v3) and {action:...} (v2) response formats
+        const steps = brainData.steps || [brainData];
+
+        if (brainData.cache_hit) pushLog(`Cache hit! Reusing ${steps.length} cached step(s).`, "info");
+        else                     pushLog(`Brain: ${steps.length} step(s) planned.`, "info");
+
+        plan      = steps[0];
+        stepQueue = steps.slice(1);
+      } catch (e) {
+        pushLog(`Brain error: ${e.message}`, "error");
+        break;
+      }
     }
 
     if (plan.error) { pushLog(`Brain: ${plan.error}`, "error"); break; }
     pushLog(`→ ${plan.action.toUpperCase()}: ${plan.selector || plan.value || ""} — ${plan.reason}`, "action");
 
-    if (plan.action === "done") { pushLog("✓ Goal achieved!", "done"); break; }
-    if (plan.action === "fail") { pushLog(`✗ ${plan.reason}`, "error"); break; }
+    if (plan.action === "done") { pushLog("✓ Goal achieved!", "done"); stepQueue = []; break; }
+    if (plan.action === "fail") { pushLog(`✗ ${plan.reason}`, "error"); stepQueue = []; break; }
 
-    // 3a. Human-in-the-loop: ask approval for dangerous actions
+    // 3a. Human-in-the-loop: approval for dangerous actions
     if (isDangerous(plan)) {
       pushLog(`⚠ Waiting for your approval…`, "warning");
       const approved = await requestHumanApproval(plan);
-      if (!approved) { pushLog("Action blocked by user.", "error"); break; }
+      if (!approved) { pushLog("Action blocked by user.", "error"); stepQueue = []; break; }
       pushLog("Approved. Executing…", "info");
     }
 
-    // 3b. Hands — execute (3-layer retry)
+    // 3b. Hands — execute (multi-layer retry in content.js)
     let actionOk = false;
 
-    // Layer 1+2+3+4: DOM-based strategies (inside content.js)
     try {
       const result = await executeAction(tabId, plan);
       if (result?.ok) {
@@ -172,14 +187,14 @@ async function runAgentLoop(goal, tabId) {
       pushLog(`Execute error: ${e.message} — trying Vision…`, "warning");
     }
 
-    // Layer 5: Vision coordinates (Gemini sees screenshot → gives x,y)
+    // Vision fallback: Gemini finds pixel coordinates
     if (!actionOk && plan.action === "click") {
       try {
         const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: "png" });
-        const b64 = dataUrl.split(",")[1];
+        const b64    = dataUrl.split(",")[1];
         const target = plan.reason || plan.selector || "the target button";
 
-        pushLog(`Vision fallback: asking Gemini for coordinates of "${target}"…`, "info");
+        pushLog(`Vision fallback: asking Gemini for "${target}"…`, "info");
         const res = await fetch(COORDS_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -189,7 +204,7 @@ async function runAgentLoop(goal, tabId) {
         const coords = await res.json();
 
         if (coords.x && coords.y) {
-          pushLog(`Gemini found coordinates (${coords.x}, ${coords.y}) — clicking…`, "action");
+          pushLog(`Gemini found (${coords.x}, ${coords.y}) — clicking…`, "action");
           const r2 = await new Promise((resolve, reject) => {
             chrome.tabs.sendMessage(tabId, { type: "CLICK_AT_XY", payload: { x: coords.x, y: coords.y } }, resp => {
               if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
@@ -206,7 +221,11 @@ async function runAgentLoop(goal, tabId) {
       }
     }
 
-    if (!actionOk) { pushLog("All click strategies failed. Stopping.", "error"); break; }
+    if (!actionOk) {
+      pushLog("All click strategies failed. Stopping.", "error");
+      stepQueue = [];
+      break;
+    }
 
     history.push({ step, action: plan.action, selector: plan.selector, value: plan.value });
 
@@ -219,11 +238,13 @@ async function runAgentLoop(goal, tabId) {
     if (verify.goal_done) {
       pushLog(`Gemini: ${verify.observation}`, "done");
       pushLog("✓ Gemini confirmed: Goal achieved!", "done");
+      stepQueue = [];
       break;
     }
 
     if (!verify.action_ok) {
-      // Self-heal: tell the Brain what Gemini saw so it tries differently
+      // Self-heal: clear queue so Brain re-plans from fresh page state
+      stepQueue       = [];
       lastObservation = `FAILED: ${verify.observation}. Try a completely different approach or selector.`;
       pushLog(`⚠ Self-healing: ${verify.observation}`, "error");
     } else {
