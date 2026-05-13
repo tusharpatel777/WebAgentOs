@@ -31,7 +31,6 @@ function findElement(css, xpath) {
   }
 
   // 4. Full-page text scan — catches Flipkart/Amazon div-based buttons
-  // Uses the hint OR the xpath leaf text to find matching element by exact visible text
   const searchText = hint || (xpath || "").split("/").pop().replace(/\[.*\]/, "");
   if (searchText.length > 2) {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
@@ -40,12 +39,33 @@ function findElement(css, xpath) {
       const text = el.textContent.trim().toLowerCase();
       if (text === searchText.toLowerCase() || text.startsWith(searchText.toLowerCase())) {
         const style = window.getComputedStyle(el);
-        if (style.display !== "none" && style.visibility !== "hidden") return el;
+        if (style.display !== "none" && style.visibility !== "hidden") {
+          // Walk up to find actual clickable ancestor (cursor:pointer parent)
+          return findClickableAncestorInContent(el);
+        }
       }
     }
   }
 
   return null;
+}
+
+// Walk up DOM to find element with cursor:pointer — the real clickable target
+function findClickableAncestorInContent(el) {
+  let node = el;
+  for (let i = 0; i < 8 && node && node !== document.body; i++) {
+    const style = window.getComputedStyle(node);
+    if (
+      style.cursor === "pointer"             ||
+      node.onclick                            ||
+      node.hasAttribute("onclick")            ||
+      node.getAttribute("role") === "button"  ||
+      node.tagName === "BUTTON"               ||
+      node.tagName === "A"
+    ) return node;
+    node = node.parentElement;
+  }
+  return el;
 }
 
 // Waits up to `timeout` ms for element to appear in DOM (handles dynamic pages)

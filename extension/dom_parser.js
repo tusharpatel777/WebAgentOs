@@ -32,6 +32,26 @@
     return null;
   }
 
+  // Walk UP the DOM to find the nearest ancestor that actually handles clicks.
+  // Flipkart/Amazon put text in a deep <div>, but the click handler is on a parent.
+  function findClickableAncestor(el) {
+    let node = el;
+    const limit = 8; // max levels to walk up
+    for (let i = 0; i < limit && node && node !== document.body; i++) {
+      const style = window.getComputedStyle(node);
+      if (
+        style.cursor === "pointer"          ||
+        node.onclick                         ||
+        node.hasAttribute("onclick")         ||
+        node.getAttribute("role") === "button" ||
+        node.tagName === "BUTTON"            ||
+        node.tagName === "A"
+      ) return node;
+      node = node.parentElement;
+    }
+    return el; // fallback — return original element
+  }
+
   function isVisible(el) {
     const rect  = el.getBoundingClientRect();
     const style = window.getComputedStyle(el);
@@ -74,22 +94,27 @@
     });
 
     // ── Pass 2: Text-based scan — catches Flipkart/Amazon div buttons ────────
-    // Finds ANY element whose visible text exactly matches action keywords
+    // Finds ANY element whose text matches action keywords,
+    // then walks UP the DOM to find the actual clickable ancestor (cursor:pointer).
     ACTION_TEXTS.forEach(keyword => {
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
       while (walker.nextNode()) {
         const el = walker.currentNode;
         const text = el.childNodes.length === 1 && el.firstChild.nodeType === 3
-          ? el.textContent.trim().toLowerCase()   // direct text node only
+          ? el.textContent.trim().toLowerCase()
           : "";
         if (!text.includes(keyword)) continue;
         if (!isVisible(el)) continue;
-        const xpath = getXPath(el);
-        if (seen.has(xpath)) continue;
+
+        // Walk UP to find the real clickable ancestor
+        const clickable = findClickableAncestor(el);
+
+        const xpath = getXPath(clickable);
+        if (seen.has(xpath)) return;
         seen.add(xpath);
 
         const label = el.textContent.trim().slice(0, 80);
-        priority.unshift({ tag: el.tagName.toLowerCase(), type: "", label, css: getBestCSS(el), xpath });
+        priority.unshift({ tag: clickable.tagName.toLowerCase(), type: "", label, css: getBestCSS(clickable), xpath });
       }
     });
 
