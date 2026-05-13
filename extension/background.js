@@ -2,6 +2,7 @@
 
 const BRAIN_URL  = "https://tusharpatel-webagentos-brain.hf.space/plan";
 const VERIFY_URL = "https://tusharpatel-webagentos-brain.hf.space/verify";
+const COORDS_URL = "https://tusharpatel-webagentos-brain.hf.space/coordinates";
 const MAX_STEPS  = 15;
 
 let stopFlag = false;
@@ -155,14 +156,56 @@ async function runAgentLoop(goal, tabId) {
       pushLog("Approved. Executing…", "info");
     }
 
-    // 3b. Hands — execute
+    // 3b. Hands — execute (3-layer retry)
+    let actionOk = false;
+
+    // Layer 1+2+3+4: DOM-based strategies (inside content.js)
     try {
       const result = await executeAction(tabId, plan);
-      if (!result?.ok) { pushLog(`Action failed: ${result?.msg}`, "error"); break; }
+      if (result?.ok) {
+        actionOk = true;
+      } else {
+        pushLog(`DOM click failed: ${result?.msg} — trying Vision…`, "warning");
+      }
     } catch (e) {
-      pushLog(`Execute error: ${e.message}`, "error");
-      break;
+      pushLog(`Execute error: ${e.message} — trying Vision…`, "warning");
     }
+
+    // Layer 5: Vision coordinates (Gemini sees screenshot → gives x,y)
+    if (!actionOk && plan.action === "click") {
+      try {
+        const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: "png" });
+        const b64 = dataUrl.split(",")[1];
+        const target = plan.reason || plan.selector || "the target button";
+
+        pushLog(`Vision fallback: asking Gemini for coordinates of "${target}"…`, "info");
+        const res = await fetch(COORDS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ screenshot: b64, target }),
+          signal: AbortSignal.timeout(20000),
+        });
+        const coords = await res.json();
+
+        if (coords.x && coords.y) {
+          pushLog(`Gemini found coordinates (${coords.x}, ${coords.y}) — clicking…`, "action");
+          const r2 = await new Promise((resolve, reject) => {
+            chrome.tabs.sendMessage(tabId, { type: "CLICK_AT_XY", payload: { x: coords.x, y: coords.y } }, resp => {
+              if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+              resolve(resp);
+            });
+          });
+          if (r2?.ok) actionOk = true;
+          else pushLog(`Coordinate click failed: ${r2?.msg}`, "error");
+        } else {
+          pushLog(`Gemini could not locate element on screen`, "error");
+        }
+      } catch (e) {
+        pushLog(`Vision fallback error: ${e.message}`, "error");
+      }
+    }
+
+    if (!actionOk) { pushLog("All click strategies failed. Stopping.", "error"); break; }
 
     history.push({ step, action: plan.action, selector: plan.selector, value: plan.value });
 
